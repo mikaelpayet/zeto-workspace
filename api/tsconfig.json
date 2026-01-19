@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "esModuleInterop": true,
+    "moduleResolution": "nodenext",
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "outDir": "lib",
+    "sourceMap": true,
+    "strict": true,
+    "target": "ES2021",
+    "lib": [
+      "ES2021",
+      "DOM"
+    ],
+  },
+  "compileOnSave": true,
+  "include": [
+    "src",
+    "src/modules/*.model*",
+    "src/modules/*.mock*",
+  ]
+}

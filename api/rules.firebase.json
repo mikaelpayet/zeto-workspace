@@ -1,0 +1,10 @@
+{
+    "rules": {
+        "actions": {
+            "$actionId": {
+                ".read": "auth != null && $actionId === auth.uid",
+                ".write": "auth != null && $actionId === auth.token.moduleId"
+            }
+        }
+    }
+}
