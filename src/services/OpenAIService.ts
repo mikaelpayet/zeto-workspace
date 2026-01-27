@@ -15,7 +15,7 @@ interface ChatResponse {
 }
 
 class OpenAIService {
-  private readonly apiUrl = '/api/chat';
+  private readonly apiUrl = '/.netlify/functions/chat';
 
   async sendMessage(message: string, files: FileData[] = []): Promise<string> {
     try {
