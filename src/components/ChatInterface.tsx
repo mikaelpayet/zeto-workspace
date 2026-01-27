@@ -211,7 +211,7 @@ if (!contentType.includes("text/event-stream")) {
     data?.message ||
     "Réponse vide.";
 
-  const aiMessageFinal = {
+  const aiMessageFinal: Message = {
     id: `msg-${Date.now()}-ai`,
     type: "ai",
     content: text,
