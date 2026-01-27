@@ -146,10 +146,11 @@ export default function ChatInterface({
     const hasFiles = selectedDocuments.length > 0;
     if (hasFiles) setIsSearching(true);
 
+    const messageToSend = inputMessage;
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       type: "user",
-      content: inputMessage,
+      content: messageToSend,
       timestamp: new Date().toISOString(),
     };
 
@@ -184,14 +185,13 @@ export default function ChatInterface({
       }));
 
       // --- STREAMING SSE ---
-      const res = await fetch(`${DOMAIN}/api/openai/chat`, {
+     const res = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": import.meta.env.VITE_CENTRAL_API_KEY,
         },
         body: JSON.stringify({
-          message: inputMessage,
+          message: messageToSend,
           files: processedFiles,
           projectId,
           stream: true,
