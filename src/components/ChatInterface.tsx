@@ -201,6 +201,29 @@ export default function ChatInterface({
       if (!res.ok || !res.body) {
         throw new Error(`Erreur HTTP: ${res.status}`);
       }
+const contentType = res.headers.get("content-type") || "";
+
+if (!contentType.includes("text/event-stream")) {
+  const data = await res.json().catch(() => null);
+
+  const text =
+    data?.response ||
+    data?.message ||
+    "Réponse vide.";
+
+  const aiMessageFinal = {
+    id: `msg-${Date.now()}-ai`,
+    type: "ai",
+    content: text,
+    timestamp: new Date().toISOString(),
+  };
+
+  setMessages((prev) =>
+    prev.map((m) => (m.id === loadingId ? aiMessageFinal : m))
+  );
+
+  return; // ⛔️ ON SORT ICI, PAS DE STREAM
+}
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
