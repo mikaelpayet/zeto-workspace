@@ -31,8 +31,9 @@ export default async (req, context) => {
     }
 
     const body = await req.json().catch(() => null);
-    const message = body?.message?.toString?.().trim?.() ?? "";
-    const files = Array.isArray(body?.files) ? body.files : [];
+   const message = body?.message?.toString?.().trim?.() ?? "";
+const projectId = (body?.projectId || "default").trim();
+const files = Array.isArray(body?.files) ? body.files : [];
 
     if (!message) {
       return new Response(
@@ -40,6 +41,20 @@ export default async (req, context) => {
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+const snap = await db
+  .collection("projects")
+  .doc(projectId)
+  .collection("documents")
+  .orderBy("createdAt", "asc")
+  .get();
+
+let documentsContext = "";
+snap.forEach((doc) => {
+  const d = doc.data();
+  if (d?.text) {
+    documentsContext += `\n--- DOCUMENT: ${d.fileName || doc.id} ---\n${String(d.text).slice(0, 6000)}\n`;
+  }
+});
 
     // Contexte fichiers (simple, sans faire exploser le payload)
     const filesContext = files
@@ -52,9 +67,11 @@ export default async (req, context) => {
       })
       .join("\n\n");
 
-    const userContent = filesContext
-      ? `${message}\n\nContexte fichiers:\n${filesContext}`
-      : message;
+    const combinedContext = [documentsContext, filesContext].filter(Boolean).join("\n\n");
+
+const userContent = combinedContext
+  ? `${message}\n\nContexte du projet:\n${combinedContext}`
+  : message;
 
     // Appel OpenAI (Responses API)
     const upstream = await fetch("https://api.openai.com/v1/responses", {
