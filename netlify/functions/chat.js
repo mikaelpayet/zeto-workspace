@@ -15,9 +15,56 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-function clampStr(s, max = 6000) {
+// ✅ JSON UTF-8 partout (évite les "Ã©")
+const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
+
+// ✅ Paramètres
+const MAX_FILES = 8;
+const MAX_CHARS_PER_FILE = 6000;
+
+// ✅ Verrou projectId (souple par défaut)
+// - false : si le doc n’a pas de projectId, on le garde (pratique en phase dev)
+// - true  : si projectId est fourni et doc.projectId != projectId => rejet strict
+const STRICT_PROJECT_LOCK = false;
+
+function clampStr(s, max = MAX_CHARS_PER_FILE) {
   const t = (s ?? "").toString();
   return t.length > max ? t.slice(0, max) : t;
+}
+
+function safeTrim(x) {
+  return (x ?? "").toString().trim();
+}
+
+function extractOutputText(data) {
+  // ✅ Réponse "simple"
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  // ✅ Fallback : parcours de data.output[*].content[*]
+  if (Array.isArray(data?.output)) {
+    const chunks = [];
+    for (const item of data.output) {
+      const content = item?.content;
+      if (!Array.isArray(content)) continue;
+
+      for (const c of content) {
+        // Responses API peut renvoyer {type:"output_text", text:"..."}
+        if (c?.type === "output_text" && typeof c?.text === "string") {
+          chunks.push(c.text);
+          continue;
+        }
+        // Best-effort si jamais c’est sous une autre forme
+        if (typeof c?.text === "string") {
+          chunks.push(c.text);
+        }
+      }
+    }
+    return chunks.join("\n").trim();
+  }
+
+  return "";
 }
 
 export default async (req) => {
@@ -30,27 +77,33 @@ export default async (req) => {
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: "OPENAI_API_KEY manquante sur Netlify" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: 500, headers: JSON_HEADERS }
       );
     }
 
     const body = await req.json().catch(() => null);
-    const message = body?.message?.toString?.().trim?.() ?? "";
-    const projectId = (body?.projectId || "").toString().trim();
+
+    const message = safeTrim(body?.message);
+    const projectId = safeTrim(body?.projectId);
+
     const fileIds = Array.isArray(body?.fileIds)
-      ? body.fileIds.map((x) => (x ?? "").toString().trim()).filter(Boolean)
+      ? body.fileIds.map(safeTrim).filter(Boolean)
       : [];
 
     if (!message) {
-      return new Response(
-        JSON.stringify({ error: "Message vide" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Message vide" }), {
+        status: 400,
+        headers: JSON_HEADERS,
+      });
     }
 
-    // ✅ Garde-fous
-    const MAX_FILES = 8;
-    const MAX_CHARS_PER_FILE = 6000;
+    // ✅ Guard clair : on veut du doc-based
+    if (!fileIds.length) {
+      return new Response(
+        JSON.stringify({ error: "fileIds manquant (au moins 1 document requis)" }),
+        { status: 400, headers: JSON_HEADERS }
+      );
+    }
 
     const pickedFileIds = fileIds.slice(0, MAX_FILES);
 
@@ -60,17 +113,29 @@ export default async (req) => {
 
     for (const fileId of pickedFileIds) {
       const snap = await db.collection("files").doc(fileId).get();
+
       if (!snap.exists) {
         missing.push(fileId);
         continue;
       }
 
       const d = snap.data() || {};
-      // Optionnel : verrou "projectId" si tu veux éviter de mixer des projets
-      if (projectId && d.projectId && d.projectId !== projectId) {
-        // On le met en "missing" pour être safe (évite fuite inter-projets)
-        missing.push(`${fileId} (mauvais projectId)`);
-        continue;
+
+      // 🔒 Verrou projectId : souple ou strict selon le flag
+      if (projectId) {
+        if (STRICT_PROJECT_LOCK) {
+          // strict : le doc DOIT avoir le même projectId
+          if (d.projectId !== projectId) {
+            missing.push(`${fileId} (mauvais projectId)`);
+            continue;
+          }
+        } else {
+          // souple : si le doc a un projectId différent => rejet ; sinon on accepte
+          if (d.projectId && d.projectId !== projectId) {
+            missing.push(`${fileId} (mauvais projectId)`);
+            continue;
+          }
+        }
       }
 
       const name = d.name || d.fileName || fileId;
@@ -92,9 +157,14 @@ export default async (req) => {
         JSON.stringify({
           error:
             "Aucun document exploitable. Vérifie que fileIds est bien envoyé et que files/{fileId}.extractedText existe.",
-          details: { receivedProjectId: projectId || null, receivedFileIds: fileIds, missing },
+          details: {
+            receivedProjectId: projectId || null,
+            receivedFileIds: fileIds,
+            pickedFileIds,
+            missing,
+          },
         }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: JSON_HEADERS }
       );
     }
 
@@ -105,7 +175,7 @@ export default async (req) => {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
@@ -124,27 +194,12 @@ export default async (req) => {
       const errText = await upstream.text();
       return new Response(
         JSON.stringify({ error: `OpenAI error ${upstream.status}: ${errText}` }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
+        { status: 502, headers: JSON_HEADERS }
       );
     }
 
     const data = await upstream.json();
-
-    // Extraction texte (best-effort)
-    let outputText = "";
-    if (typeof data.output_text === "string") outputText = data.output_text;
-
-    if (!outputText && Array.isArray(data.output)) {
-      const chunks = [];
-      for (const item of data.output) {
-        if (item?.content) {
-          for (const c of item.content) {
-            if (c?.type === "output_text" && c?.text) chunks.push(c.text);
-          }
-        }
-      }
-      outputText = chunks.join("\n").trim();
-    }
+    const outputText = extractOutputText(data);
 
     return new Response(
       JSON.stringify({
@@ -154,13 +209,16 @@ export default async (req) => {
           fileIds: pickedFileIds,
           missing,
         },
+        meta: {
+          model: "gpt-4.1-mini",
+        },
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: JSON_HEADERS }
     );
   } catch (e) {
-    return new Response(
-      JSON.stringify({ error: e?.message || "Erreur inconnue" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: e?.message || "Erreur inconnue" }), {
+      status: 500,
+      headers: JSON_HEADERS,
+    });
   }
 };
