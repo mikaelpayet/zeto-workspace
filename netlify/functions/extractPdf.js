@@ -17,6 +17,15 @@ const db = admin.firestore();
 
 export default async (req) => {
   try {
+    return new Response(
+  JSON.stringify({
+    version: "extractPdf-v2-files",
+    receivedFileId: fileId,
+    receivedProjectId: url.searchParams.get("projectId"),
+  }),
+  { status: 200, headers: { "Content-Type": "application/json" } }
+);
+
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
