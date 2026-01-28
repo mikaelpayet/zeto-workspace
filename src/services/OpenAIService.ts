@@ -1,48 +1,80 @@
-interface FileData {
-  name: string;
-  type: string;
-  content: string;
+interface SelectedFile {
+  id: string;      // Firestore doc id (ex: kOFoINSH7YGC...)
+  name?: string;
+  type?: string;
+  url?: string;
 }
 
 interface ChatRequest {
   message: string;
-  files?: FileData[];
+  projectId?: string;
+  fileIds: string[];
 }
 
 interface ChatResponse {
   response: string;
+  used?: {
+    projectId: string | null;
+    fileIds: string[];
+    missing: string[];
+  };
   error?: string;
 }
 
 class OpenAIService {
-  private readonly apiUrl = '/.netlify/functions/chat';
+  private readonly apiUrl = "/.netlify/functions/chat";
 
-  async sendMessage(message: string, files: FileData[] = []): Promise<string> {
+  /**
+   * Envoie un message au backend "chat" en mode doc-based:
+   * - message
+   * - projectId (optionnel mais recommandé)
+   * - fileIds (obligatoire)
+   */
+  async sendMessage(
+    message: string,
+    selectedFiles: SelectedFile[] = [],
+    projectId?: string
+  ): Promise<string> {
+    const fileIds = (selectedFiles || [])
+      .map((f) => (f?.id || "").trim())
+      .filter(Boolean);
+
+    // ✅ Guard côté front : évite les 400 inutiles
+    if (!fileIds.length) {
+      throw new Error("Aucun document sélectionné (fileIds vide).");
+    }
+
+    const payload: ChatRequest = {
+      message,
+      projectId,
+      fileIds,
+    };
+
     try {
       const response = await fetch(this.apiUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json; charset=utf-8",
         },
-        body: JSON.stringify({
-          message,
-          files
-        } as ChatRequest)
+        body: JSON.stringify(payload),
       });
 
+      const data: ChatResponse = await response.json().catch(() => ({
+        response: "",
+        error: `Réponse non-JSON (HTTP ${response.status})`,
+      }));
+
       if (!response.ok) {
-        throw new Error(`Erreur HTTP: ${response.status}`);
+        throw new Error(data?.error || `Erreur HTTP: ${response.status}`);
       }
 
-      const data: ChatResponse = await response.json();
-      
       if (data.error) {
         throw new Error(data.error);
       }
 
       return data.response;
     } catch (error) {
-      console.error('Erreur OpenAI Service:', error);
+      console.error("Erreur OpenAI Service:", error);
       throw error;
     }
   }
