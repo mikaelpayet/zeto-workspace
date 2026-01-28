@@ -17,12 +17,10 @@ const db = admin.firestore();
 
 export default async (req) => {
   try {
-    // 1️⃣ Méthode
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
 
-    // 2️⃣ Paramètres URL
     const url = new URL(req.url);
     const fileId = (url.searchParams.get("fileId") || "").trim();
     const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
@@ -34,7 +32,6 @@ export default async (req) => {
       );
     }
 
-    // 3️⃣ PDF binaire
     const arrayBuffer = await req.arrayBuffer();
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
       return new Response(
@@ -45,10 +42,36 @@ export default async (req) => {
 
     const buffer = Buffer.from(arrayBuffer);
 
-    // 4️⃣ Extraction
     const data = await pdf(buffer);
     const text = (data?.text || "").trim();
 
     if (!text) {
       return new Response(
-        JSON.stringify({ error: "Aucun
+        JSON.stringify({ error: "Aucun texte extrait du PDF" }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    await db.collection("files").doc(fileId).update({
+      fileName,
+      extractedText: text,
+      extractedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return new Response(
+      JSON.stringify({
+        fileId,
+        extracted: true,
+        textPreview: text.slice(0, 200),
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ error: e?.message || "Erreur extraction PDF" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+};
+
+
