@@ -1,7 +1,25 @@
 import pdf from "pdf-parse";
+import admin from "firebase-admin";
+
+function getServiceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+  return JSON.parse(raw);
+}
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(getServiceAccount()),
+  });
+}
+
+const db = admin.firestore();
 
 export default async (req) => {
   try {
+    const url = new URL(req.url);
+const projectId = (url.searchParams.get("projectId") || "default").trim();
+const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
@@ -19,9 +37,20 @@ export default async (req) => {
 
     const data = await pdf(buffer);
     const text = (data?.text || "").trim();
+    const docRef = await db
+  .collection("projects")
+  .doc(projectId)
+  .collection("documents")
+  .add({
+    fileName,
+    text,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+const docId = docRef.id;
 
     return new Response(
-      JSON.stringify({ text }),
+      JSON.stringify({ docId, text }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (e) {
