@@ -52,11 +52,15 @@ export default async (req) => {
       );
     }
 
-    await db.collection("files").doc(fileId).update({
-      fileName,
-      extractedText: text,
-      extractedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    await db.collection("files").doc(fileId).set(
+  {
+    fileName,
+    extractedText: text,
+    extractedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  },
+  { merge: true }
+);
 
     return new Response(
       JSON.stringify({
