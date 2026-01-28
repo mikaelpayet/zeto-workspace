@@ -17,14 +17,21 @@ const db = admin.firestore();
 
 export default async (req) => {
   try {
-    const url = new URL(req.url);
-const projectId = (url.searchParams.get("projectId") || "default").trim();
-const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
 
-    // Reçoit un PDF en binaire (ArrayBuffer)
+    const url = new URL(req.url);
+    const fileId = (url.searchParams.get("fileId") || "").trim();
+    const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
+
+    if (!fileId) {
+      return new Response(
+        JSON.stringify({ error: "fileId manquant dans l'URL" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const arrayBuffer = await req.arrayBuffer();
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
       return new Response(
@@ -37,26 +44,23 @@ const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
 
     const data = await pdf(buffer);
     const text = (data?.text || "").trim();
-    const docRef = await db
-  .collection("projects")
-  .doc(projectId)
-  .collection("documents")
-  .add({
-    fileName,
-    text,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
 
-const docId = docRef.id;
+    // ✅ Stockage du texte extrait au même endroit que le fichier
+    await db.collection("files").doc(fileId).update({
+      fileName,
+      extractedText: text,
+      extractedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     return new Response(
-      JSON.stringify({ docId, text }),
+      JSON.stringify({
+        fileId,
+        extracted: true,
+        textPreview: text.slice(0, 200),
+      }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (e) {
     return new Response(
       JSON.stringify({ error: e?.message || "Erreur extraction PDF" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-};
+      { status: 500, headers: { "Content-Type": "a
