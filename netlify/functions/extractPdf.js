@@ -3,7 +3,9 @@ import admin from "firebase-admin";
 
 function getServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+  if (!raw) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+  }
   return JSON.parse(raw);
 }
 
@@ -17,19 +19,12 @@ const db = admin.firestore();
 
 export default async (req) => {
   try {
-    return new Response(
-  JSON.stringify({
-    version: "extractPdf-v2-files",
-    receivedFileId: fileId,
-    receivedProjectId: url.searchParams.get("projectId"),
-  }),
-  { status: 200, headers: { "Content-Type": "application/json" } }
-);
-
+    // 1️⃣ Méthode HTTP
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
 
+    // 2️⃣ Paramètres URL
     const url = new URL(req.url);
     const fileId = (url.searchParams.get("fileId") || "").trim();
     const fileName = (url.searchParams.get("fileName") || "upload.pdf").trim();
@@ -41,6 +36,7 @@ export default async (req) => {
       );
     }
 
+    // 3️⃣ Récupération du PDF
     const arrayBuffer = await req.arrayBuffer();
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
       return new Response(
@@ -51,16 +47,25 @@ export default async (req) => {
 
     const buffer = Buffer.from(arrayBuffer);
 
+    // 4️⃣ Extraction du texte
     const data = await pdf(buffer);
     const text = (data?.text || "").trim();
 
-    // ✅ Stockage du texte extrait au même endroit que le fichier
+    if (!text) {
+      return new Response(
+        JSON.stringify({ error: "Aucun texte extrait du PDF" }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 5️⃣ Écriture Firestore : files/{fileId}
     await db.collection("files").doc(fileId).update({
       fileName,
       extractedText: text,
       extractedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // 6️⃣ Réponse OK
     return new Response(
       JSON.stringify({
         fileId,
@@ -71,5 +76,10 @@ export default async (req) => {
     );
   } catch (e) {
     return new Response(
-      JSON.stringify({ error: e?.message || "Erreur extraction PDF" }),
-      { status: 500, headers: { "Content-Type": "a
+      JSON.stringify({
+        error: e?.message || "Erreur extraction PDF",
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+};
