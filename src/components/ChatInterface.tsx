@@ -191,11 +191,12 @@ export default function ChatInterface({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: messageToSend,
-          files: processedFiles,
-          projectId,
-          stream: true,
-        }),
+  message: messageToSend,
+  projectId,
+  fileIds: selectedDocuments.map((f) => f.id),
+  stream: true,
+}),
+
       });
 
       if (!res.ok || !res.body) {
